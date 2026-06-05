@@ -95,4 +95,3 @@ def is_probably_silent(
     """
 
     return calculate_rms_volume(audio_data) < silence_threshold
-

@@ -34,4 +34,3 @@ def play_audio_file(file_path: Path) -> None:
             "Verifique o dispositivo de saída do computador."
         )
         raise AudioPlaybackError(msg) from exc
-    

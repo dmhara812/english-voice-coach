@@ -129,4 +129,3 @@ def _capture_chunk(
         stream_warnings.append(str(status))
 
     chunks.append(indata.copy())
-    
