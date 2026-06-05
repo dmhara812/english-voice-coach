@@ -1,0 +1,48 @@
+# Ambiente virtual
+.venv/
+venv/
+ENV/
+
+# Variáveis de ambiente locais
+.env
+.env.*
+!.env.example
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cache de ferramentas
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Arquivos de sistema operacional
+.DS_Store
+Thumbs.db
+
+# Banco de dados local
+*.db
+*.sqlite
+*.sqlite3
+data/conversations.db
+
+# Áudios gerados ou temporários
+*.wav
+*.mp3
+*.m4a
+data/audio/*
+!data/audio/.gitkeep
+
+# Logs e arquivos temporários
+*.log
+tmp/
+temp/
+
+# Builds e empacotamento
+dist/
+build/
+*.egg-info/
