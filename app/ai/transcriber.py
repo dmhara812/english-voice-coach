@@ -12,6 +12,7 @@ from openai import (
     BadRequestError,
     OpenAI,
     OpenAIError,
+    RateLimitError,
 )
 
 from app.audio.silence_detector import SilenceDetectionError, analyze_audio_file
@@ -82,6 +83,22 @@ def validate_audio_file(audio_file_path: Path, settings: AppSettings) -> None:
         raise TranscriptionError(msg)
 
 
+def _extract_openai_error_code(exc: APIStatusError) -> str:
+    """Extrai o código interno da OpenAI quando a resposta trouxer esse campo."""
+
+    body = getattr(exc, "body", None)
+
+    if not isinstance(body, dict):
+        return ""
+
+    error = body.get("error")
+
+    if not isinstance(error, dict):
+        return ""
+
+    return str(error.get("code") or "")
+
+
 def _extract_transcription_text(response: Any) -> str:
     """Extrai o texto da resposta da OpenAI de forma defensiva."""
 
@@ -131,6 +148,19 @@ def transcribe_audio_file(
         raise TranscriptionError(msg) from exc
     except BadRequestError as exc:
         msg = "A OpenAI recusou o arquivo de áudio. Verifique se a gravação não está vazia ou corrompida."
+        raise TranscriptionError(msg) from exc
+    except RateLimitError as exc:
+        error_code = _extract_openai_error_code(exc)
+        if error_code == "insufficient_quota":
+            msg = (
+                "A OpenAI recusou a transcrição por falta de cota ou créditos na API. "
+                "Verifique Billing, créditos disponíveis e se a chave pertence ao projeto correto."
+            )
+        else:
+            msg = (
+                "A OpenAI limitou temporariamente as requisições de transcrição. "
+                "Tente novamente depois ou reduza a frequência de testes."
+            )
         raise TranscriptionError(msg) from exc
     except APIConnectionError as exc:
         msg = "Não foi possível conectar à OpenAI. Verifique sua internet e tente novamente."

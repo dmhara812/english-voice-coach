@@ -1,10 +1,10 @@
 # English Voice Coach AI
 
-Assistente de voz para praticar conversação em inglês com correção, feedback e continuidade de diálogo.
+Assistente em Python para praticar conversação em inglês com fala pelo microfone, transcrição com IA, correção estruturada e continuação da conversa em texto.
 
 > Status: em desenvolvimento  
-> Versão atual: estrutura inicial + captura de áudio local  
-> Observação: este README é inicial. Na etapa final do projeto, ele será reescrito em uma versão mais apresentável, com português e inglês, pensando em portfólio.
+> Versão atual: captura de áudio local + transcrição + coach textual com JSON validado  
+> Observação: este README é inicial. Na etapa final, ele será reescrito em uma versão mais apresentável, em português e inglês, pensando em portfólio.
 
 ---
 
@@ -15,50 +15,105 @@ O **English Voice Coach AI** será uma aplicação em Python para ajudar estudan
 A ideia principal é simular uma conversa com um professor de inglês:
 
 1. o usuário fala em inglês pelo microfone;
-2. o sistema grava a fala;
-3. a fala é transcrita com IA;
+2. o sistema grava a fala manualmente por Enter;
+3. a fala é transcrita com a API da OpenAI;
 4. o coach corrige a frase;
-5. o coach sugere uma forma mais natural de falar;
-6. o coach responde em inglês;
-7. o coach faz uma pergunta relacionada ao assunto;
-8. o sistema transforma a resposta em áudio;
+5. o coach mostra uma versão mais natural;
+6. o coach sugere formas melhores de continuar a resposta;
+7. o coach responde em inglês por texto;
+8. o coach faz uma pergunta relacionada ao assunto;
 9. a conversa continua em ciclos.
+
+---
+
+## Decisão de MVP: sem TTS obrigatório
+
+O MVP **não terá resposta em áudio da IA**.
+
+O fluxo principal será:
+
+```text
+você fala pelo microfone
+↓
+o sistema transcreve
+↓
+o coach corrige sua fala
+↓
+mostra sugestões de melhoria
+↓
+responde em inglês por texto
+↓
+faz uma nova pergunta em inglês para você continuar falando
+```
+
+Essa decisão reduz custo, simplifica o desenvolvimento e mantém o foco principal do projeto: praticar fala em inglês com correção e continuidade de conversa.
+
+O TTS pode ser implementado futuramente como recurso opcional, controlado por:
+
+```env
+ENABLE_TTS=false
+```
 
 ---
 
 ## Decisão importante sobre a gravação
 
-A gravação será controlada manualmente pelo usuário:
+A gravação principal será manual:
 
 ```text
-Pressione Enter para começar a gravar.
-Fale em inglês com calma.
-Pressione Enter novamente quando terminar.
+Enter para começar → falar com calma → Enter para parar
 ```
 
-Essa decisão foi tomada porque o projeto é voltado para aprendizado. Durante uma conversa em inglês, o estudante pode precisar pausar para pensar, então o sistema não deve encerrar a gravação automaticamente a cada silêncio curto.
+Essa decisão foi tomada porque o estudante pode precisar de pausas para pensar em inglês. Portanto, o sistema **não deve encerrar a gravação automaticamente só porque houve silêncio curto**.
 
-O detector de silêncio será usado apenas como apoio para identificar áudio vazio, muito baixo ou gravações sem fala útil.
+O detector de silêncio continuará existindo apenas como apoio para identificar áudio vazio, microfone baixo ou gravações sem fala útil.
 
 ---
 
-## Funcionalidades planejadas
+## Funcionalidades planejadas no MVP
 
 - Captura de áudio pelo microfone.
-- Gravação manual com início e fim por Enter.
-- Análise auxiliar de silêncio ou áudio vazio.
-- Transcrição da fala com a API da OpenAI.
-- Correção gramatical e sugestão de frase mais natural.
-- Feedback curto em português brasileiro.
-- Resposta conversacional em inglês.
-- Perguntas de continuidade relacionadas ao assunto.
-- Text-to-speech para o coach responder por voz.
+- Gravação manual por Enter.
+- Validação de áudio vazio ou silencioso.
+- Transcrição de fala usando a API da OpenAI.
+- Correção gramatical e sugestões de fala natural.
+- Sugestões de respostas possíveis em inglês.
+- Continuação da conversa com perguntas relacionadas ao assunto.
+- Resposta textual no terminal.
 - Histórico de conversas em SQLite.
-- Interface no terminal com Rich.
+- Interface de terminal com Rich.
 
 ---
 
-## Stack principal
+## Funcionalidades fora do MVP inicial
+
+- Resposta em áudio usando TTS.
+- Modo de conversa em tempo real.
+- Interface gráfica.
+- Dashboard de evolução.
+
+Essas ideias continuam válidas, mas serão tratadas como melhorias futuras.
+
+---
+
+## Funcionalidades implementadas até agora
+
+- Estrutura inicial do projeto.
+- Configuração de ambiente com `.env.example`.
+- Configuração do Ruff para lint e formatação.
+- Captura de áudio local em `.wav`.
+- Reprodução local de arquivos `.wav` apenas para teste de áudio.
+- Detector auxiliar de áudio silencioso.
+- Configuração central em `app/config.py`.
+- Transcrição de áudio em `app/ai/transcriber.py` usando OpenAI.
+- Tratamento mais claro para erro de cota/créditos da OpenAI.
+- Prompt do professor em `app/prompts/english_coach_prompt.py`.
+- Coach textual em `app/ai/coach.py` com validação Pydantic.
+- README inicial do projeto.
+
+---
+
+## Stack
 
 - Python 3.11+
 - OpenAI API
@@ -73,7 +128,7 @@ O detector de silêncio será usado apenas como apoio para identificar áudio va
 
 ---
 
-## Estrutura inicial do projeto
+## Estrutura planejada
 
 ```text
 english-voice-coach/
@@ -81,14 +136,12 @@ english-voice-coach/
 │   ├── main.py
 │   ├── config.py
 │   ├── audio/
-│   │   ├── __init__.py
 │   │   ├── recorder.py
 │   │   ├── player.py
 │   │   └── silence_detector.py
 │   ├── ai/
 │   │   ├── transcriber.py
-│   │   ├── coach.py
-│   │   └── speaker.py
+│   │   └── coach.py
 │   ├── storage/
 │   │   ├── database.py
 │   │   └── repository.py
@@ -107,104 +160,44 @@ english-voice-coach/
 └── run.py
 ```
 
+> Observação: `speaker.py` e TTS ficam fora do MVP inicial. Se forem adicionados no futuro, entrarão como recurso opcional.
+
 ---
 
-## Configuração inicial
+## Como rodar neste momento
 
-Criar o ambiente virtual:
+Crie e ative o ambiente virtual:
 
 ```powershell
 python -m venv .venv
-```
-
-Ativar o ambiente virtual no Windows PowerShell:
-
-```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-Instalar dependências:
+Instale as dependências:
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-Criar o arquivo local de variáveis de ambiente:
+Crie o arquivo `.env`:
 
 ```powershell
-copy .env.example .env
+Copy-Item .env.example .env
 ```
 
-Editar o `.env` e preencher a chave da OpenAI:
+Depois, edite o `.env` e preencha sua chave real:
 
 ```env
-OPENAI_API_KEY=sua_chave_real_aqui
+OPENAI_API_KEY=sk-...
 ```
 
-Nunca envie o arquivo `.env` para o GitHub.
+> Não coloque sua chave da OpenAI no GitHub.
 
 ---
 
-## Como validar a etapa atual
+## Configuração recomendada para economizar
 
-Executar o arquivo inicial:
-
-```powershell
-python run.py
-```
-
-Validar lint e formatação:
-
-```powershell
-ruff check .
-ruff format . --check
-```
-
-Testar gravação manual pelo terminal:
-
-```powershell
-python -c "from pathlib import Path; from app.audio.recorder import record_until_enter; print(record_until_enter(Path('data/audio'), 16000))"
-```
-
-Testar análise de silêncio substituindo o caminho pelo arquivo gravado:
-
-```powershell
-python -c "from pathlib import Path; from app.audio.silence_detector import analyze_audio_file; print(analyze_audio_file(Path('data/audio/seu-arquivo.wav')))"
-```
-
-Testar reprodução substituindo o caminho pelo arquivo gravado:
-
-```powershell
-python -c "from pathlib import Path; from app.audio.player import play_audio_file; play_audio_file(Path('data/audio/seu-arquivo.wav'))"
-```
-
----
-
-## Roadmap das etapas
-
-- [x] Etapa 1 — Planejamento
-- [x] Etapa 2 — Configuração do ambiente
-- [x] Etapa 3 — Captura de áudio
-- [ ] Etapa 4 — Transcrição
-- [ ] Etapa 5 — Coach AI
-- [ ] Etapa 6 — Text-to-speech e reprodução
-- [ ] Etapa 7 — Storage com SQLite
-- [ ] Etapa 8 — UI no terminal
-- [ ] Etapa 9 — Integração principal
-- [ ] Etapa 10 — Testes e Ruff
-- [ ] Etapa 11 — README final bilíngue para portfólio
-
----
-
-## Observação para portfólio
-
-Este projeto será organizado para demonstrar:
-
-- arquitetura modular em Python;
-- integração com APIs de IA;
-- manipulação de áudio local;
-- tratamento explícito de erros;
-- validação de dados com Pydantic;
-- persistência com SQLite;
-- documentação incremental;
-- boas práticas com Ruff e Conventional Commits.
+```env
+TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+COACH_MODEL=gpt-4.1-mini
+ENABLE_TTS=false
