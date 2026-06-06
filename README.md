@@ -1,9 +1,10 @@
 # English Voice Coach AI
 
-Assistente em Python para praticar conversação em inglês com fala pelo microfone, transcrição com IA, correção estruturada e continuação da conversa em texto.
+Assistente em Python para praticar conversação em inglês com fala pelo microfone, transcrição com IA, correção estruturada, resposta textual e histórico local em SQLite.
 
 > Status: em desenvolvimento  
-> Versão atual: captura de áudio local + transcrição + coach textual com JSON validado  
+> Versão atual: captura de áudio local + transcrição + coach textual com JSON validado + histórico SQLite  
+> Decisão de MVP: sem TTS obrigatório  
 > Observação: este README é inicial. Na etapa final, ele será reescrito em uma versão mais apresentável, em português e inglês, pensando em portfólio.
 
 ---
@@ -22,7 +23,32 @@ A ideia principal é simular uma conversa com um professor de inglês:
 6. o coach sugere formas melhores de continuar a resposta;
 7. o coach responde em inglês por texto;
 8. o coach faz uma pergunta relacionada ao assunto;
-9. a conversa continua em ciclos.
+9. a rodada é salva no SQLite;
+10. a conversa continua em ciclos.
+
+---
+
+## Fluxo do MVP
+
+```text
+você fala pelo microfone
+↓
+o sistema grava sua fala
+↓
+o áudio é transcrito
+↓
+o coach corrige sua frase
+↓
+o coach mostra sugestões de melhoria
+↓
+o coach responde em inglês por texto
+↓
+o coach faz uma pergunta relacionada
+↓
+a rodada é salva no histórico SQLite
+↓
+você responde falando novamente
+```
 
 ---
 
@@ -30,29 +56,45 @@ A ideia principal é simular uma conversa com um professor de inglês:
 
 O MVP **não terá resposta em áudio da IA**.
 
-O fluxo principal será:
+Essa decisão foi tomada por três motivos principais:
 
-```text
-você fala pelo microfone
-↓
-o sistema transcreve
-↓
-o coach corrige sua fala
-↓
-mostra sugestões de melhoria
-↓
-responde em inglês por texto
-↓
-faz uma nova pergunta em inglês para você continuar falando
-```
+- reduz custo, porque elimina chamadas de text-to-speech;
+- simplifica o desenvolvimento, evitando player de áudio, arquivo temporário de voz e problemas de reprodução no Windows;
+- mantém o foco principal do projeto: praticar fala em inglês com correção e continuidade de conversa.
 
-Essa decisão reduz custo, simplifica o desenvolvimento e mantém o foco principal do projeto: praticar fala em inglês com correção e continuidade de conversa.
+O TTS continua sendo uma ideia válida, mas fica fora do MVP inicial. Ele poderá ser implementado futuramente como recurso opcional.
 
-O TTS pode ser implementado futuramente como recurso opcional, controlado por:
+Configuração atual:
 
 ```env
 ENABLE_TTS=false
 ```
+
+---
+
+## Como o coach deve responder
+
+A resposta textual deve seguir a ideia de uma aula curta de conversação:
+
+```text
+Correction:
+...
+
+A more natural way to say it:
+...
+
+You could also say:
+1. ...
+2. ...
+
+My answer:
+...
+
+Question:
+...
+```
+
+O objetivo não é apenas corrigir. O coach também deve estimular o usuário a continuar falando em inglês, sempre com uma pergunta relacionada ao assunto.
 
 ---
 
@@ -67,6 +109,31 @@ Enter para começar → falar com calma → Enter para parar
 Essa decisão foi tomada porque o estudante pode precisar de pausas para pensar em inglês. Portanto, o sistema **não deve encerrar a gravação automaticamente só porque houve silêncio curto**.
 
 O detector de silêncio continuará existindo apenas como apoio para identificar áudio vazio, microfone baixo ou gravações sem fala útil.
+
+---
+
+## Histórico local com SQLite
+
+O projeto salva cada rodada da conversa em um banco local SQLite:
+
+```text
+data/conversations.db
+```
+
+Cada registro guarda:
+
+- caminho do áudio gravado;
+- transcrição do usuário;
+- frase corrigida;
+- versão mais natural;
+- sugestões de resposta;
+- erros identificados;
+- notas de gramática, naturalidade e vocabulário;
+- feedback em português;
+- resposta do coach em inglês;
+- pergunta de continuação.
+
+O banco local **não deve ser versionado no GitHub**.
 
 ---
 
@@ -91,6 +158,7 @@ O detector de silêncio continuará existindo apenas como apoio para identificar
 - Modo de conversa em tempo real.
 - Interface gráfica.
 - Dashboard de evolução.
+- Métricas mais avançadas de progresso.
 
 Essas ideias continuam válidas, mas serão tratadas como melhorias futuras.
 
@@ -109,6 +177,10 @@ Essas ideias continuam válidas, mas serão tratadas como melhorias futuras.
 - Tratamento mais claro para erro de cota/créditos da OpenAI.
 - Prompt do professor em `app/prompts/english_coach_prompt.py`.
 - Coach textual em `app/ai/coach.py` com validação Pydantic.
+- Decisão arquitetural formal: TTS fora do MVP obrigatório.
+- Banco SQLite inicializado em `app/storage/database.py`.
+- Repositório de conversas em `app/storage/repository.py`.
+- Salvamento e leitura de histórico recente para contexto do coach.
 - README inicial do projeto.
 
 ---
@@ -160,7 +232,7 @@ english-voice-coach/
 └── run.py
 ```
 
-> Observação: `speaker.py` e TTS ficam fora do MVP inicial. Se forem adicionados no futuro, entrarão como recurso opcional.
+> Observação: `app/audio/player.py` pode continuar existindo como utilitário de teste local para arquivos `.wav`, mas não faz parte do fluxo principal do MVP. `app/ai/speaker.py` não será criado agora.
 
 ---
 
@@ -191,8 +263,6 @@ Depois, edite o `.env` e preencha sua chave real:
 OPENAI_API_KEY=sk-...
 ```
 
-> Não coloque sua chave da OpenAI no GitHub.
-
 ---
 
 ## Configuração recomendada para economizar
@@ -201,3 +271,4 @@ OPENAI_API_KEY=sk-...
 TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 COACH_MODEL=gpt-4.1-mini
 ENABLE_TTS=false
+```
