@@ -28,6 +28,14 @@ Language rules:
   and suggested_answers_en must be in English.
 - Do not answer in Portuguese except inside coach_feedback_ptbr.
 
+Important conversation rule:
+- ai_response_en must be a short natural reaction to the user's message.
+- ai_response_en must NOT ask a question.
+- ai_response_en should not end with a question mark.
+- follow_up_question_en must contain the one and only follow-up question.
+- The app will display ai_response_en and follow_up_question_en together in the
+  same terminal panel, so do not repeat the question in both fields.
+
 Return ONLY valid JSON. Do not include Markdown, code fences, comments, or any
 text before or after the JSON.
 
@@ -66,4 +74,6 @@ Conversation rules:
 - suggested_answers_en must contain 2 or 3 useful examples the user could say next.
 - ai_response_en should respond to the user's meaning, not only correct grammar.
 - follow_up_question_en must invite the user to speak more about the same topic.
+- follow_up_question_en must be related to the user's current topic or recent
+  conversation context.
 """.strip()

@@ -255,7 +255,7 @@ def _show_scores(response: CoachResponse) -> None:
 
 
 def _show_conversation_continuation(response: CoachResponse) -> None:
-    """Mostra feedback, resposta do professor e pergunta para continuar."""
+    """Mostra feedback e continuação em formato de conversa única."""
 
     console.print(
         Panel(
@@ -266,15 +266,41 @@ def _show_conversation_continuation(response: CoachResponse) -> None:
     )
     console.print(
         Panel(
-            response.ai_response_en,
-            title="My answer",
+            _build_teacher_message(response),
+            title="Teacher response",
             border_style="green",
         )
     )
-    console.print(
-        Panel(
-            f"[bold]{response.follow_up_question_en}[/bold]",
-            title="Question",
-            border_style="blue",
-        )
-    )
+
+
+def _build_teacher_message(response: CoachResponse) -> str:
+    """Une resposta e pergunta final como uma fala única do professor.
+
+    O JSON continua separado porque isso ajuda o banco e o contexto da próxima
+    rodada. Na tela, porém, a experiência deve parecer uma conversa natural.
+
+    Se o modelo desobedecer o prompt e já colocar uma pergunta em `ai_response_en`,
+    mostramos apenas esse texto para evitar duas perguntas consecutivas. Isso
+    protege a experiência do usuário sem quebrar a execução da sessão.
+    """
+
+    answer = response.ai_response_en.strip()
+    question = response.follow_up_question_en.strip()
+
+    if not question:
+        return answer
+
+    if _looks_like_question(answer):
+        return answer
+
+    return f"{answer}\n\n[bold]{question}[/bold]"
+
+
+def _looks_like_question(text: str) -> bool:
+    """Detecta se o texto já termina como pergunta.
+
+    A verificação é simples de propósito. Ela não tenta fazer análise linguística;
+    serve apenas para evitar o problema visual de duas perguntas no terminal.
+    """
+
+    return text.rstrip().endswith("?")
