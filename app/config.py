@@ -43,8 +43,6 @@ class AppSettings:
     transcription_language: str
     coach_model: str
     enable_tts: bool
-    tts_model: str
-    voice_name: str
     db_path: Path
     audio_temp_dir: Path
 
@@ -63,7 +61,7 @@ def _read_int(name: str, default: int) -> int:
     try:
         return int(raw_value)
     except ValueError as exc:
-        msg = f"A variável {name} deve ser um número inteiro. Valor recebido: {raw_value!r}."
+        msg = f"A variável {name} deve ser um número inteiro. Valor: {raw_value!r}."
         raise ConfigError(msg) from exc
 
 
@@ -75,16 +73,15 @@ def _read_float(name: str, default: float) -> float:
     try:
         return float(raw_value)
     except ValueError as exc:
-        msg = f"A variável {name} deve ser um número decimal. Valor recebido: {raw_value!r}."
+        msg = f"A variável {name} deve ser um número decimal. Valor: {raw_value!r}."
         raise ConfigError(msg) from exc
 
 
 def _read_bool(name: str, default: bool) -> bool:
     """Lê booleanos do `.env` aceitando português e inglês.
 
-    Essa função evita bugs comuns com variáveis de ambiente, porque todo valor
-    lido do `.env` chega como texto. Sem conversão explícita, a string "false"
-    ainda seria tratada como verdadeira em Python.
+    Variáveis de ambiente sempre chegam como texto. Converter explicitamente
+    evita o bug comum em que a string "false" seria tratada como verdadeira.
     """
 
     default_as_text = "true" if default else "false"
@@ -151,8 +148,6 @@ def get_settings(
         transcription_language=_read_env("TRANSCRIPTION_LANGUAGE", "en"),
         coach_model=_read_env("COACH_MODEL", "gpt-4.1-mini"),
         enable_tts=_read_bool("ENABLE_TTS", False),
-        tts_model=_read_env("TTS_MODEL", "gpt-4o-mini-tts"),
-        voice_name=_read_env("VOICE_NAME", "alloy"),
         db_path=Path(_read_env("DB_PATH", "data/conversations.db")),
         audio_temp_dir=Path(_read_env("AUDIO_TEMP_DIR", "data/audio")),
     )
