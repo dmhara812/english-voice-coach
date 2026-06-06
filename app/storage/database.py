@@ -11,10 +11,21 @@ from typing import Final
 from app.config import AppSettings, get_settings
 
 CONVERSATIONS_TABLE: Final = "conversations"
+SESSIONS_TABLE: Final = "conversation_sessions"
+
+CREATE_SESSIONS_TABLE_SQL: Final = """
+CREATE TABLE IF NOT EXISTS conversation_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    title TEXT
+);
+"""
 
 CREATE_CONVERSATIONS_TABLE_SQL: Final = """
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER REFERENCES conversation_sessions(id),
     created_at TEXT NOT NULL,
     audio_file TEXT,
     user_transcription TEXT NOT NULL,
@@ -36,9 +47,18 @@ CREATE INDEX IF NOT EXISTS idx_conversations_created_at
 ON conversations (created_at);
 """
 
-# A lista permite evoluir o banco local sem apagar dados caso alguma pessoa já
-# tenha criado a tabela em uma versão anterior da documentação.
-REQUIRED_COLUMNS: Final[dict[str, str]] = {
+CREATE_CONVERSATIONS_SESSION_INDEX_SQL: Final = """
+CREATE INDEX IF NOT EXISTS idx_conversations_session_id
+ON conversations (session_id);
+"""
+
+CREATE_SESSIONS_STARTED_AT_INDEX_SQL: Final = """
+CREATE INDEX IF NOT EXISTS idx_conversation_sessions_started_at
+ON conversation_sessions (started_at);
+"""
+
+REQUIRED_CONVERSATION_COLUMNS: Final[dict[str, str]] = {
+    "session_id": "INTEGER REFERENCES conversation_sessions(id)",
     "suggested_answers_json": "TEXT",
     "follow_up_question_en": "TEXT",
 }
@@ -62,11 +82,7 @@ def _resolve_db_path(
 
 
 def _ensure_database_directory(db_path: Path) -> None:
-    """Cria a pasta do banco antes de conectar.
-
-    O SQLite cria o arquivo automaticamente, mas não cria diretórios pais. Por
-    isso garantimos a pasta `data/` antes da primeira conexão.
-    """
+    """Cria a pasta do banco antes de conectar."""
 
     try:
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,11 +96,7 @@ def create_connection(
     *,
     settings: AppSettings | None = None,
 ) -> sqlite3.Connection:
-    """Cria uma conexão SQLite configurada com `sqlite3.Row`.
-
-    Usar `sqlite3.Row` permite acessar colunas pelo nome no repositório, deixando
-    o código mais legível do que depender da posição de cada coluna no SELECT.
-    """
+    """Cria uma conexão SQLite configurada com `sqlite3.Row`."""
 
     resolved_db_path = _resolve_db_path(db_path, settings)
     _ensure_database_directory(resolved_db_path)
@@ -96,6 +108,7 @@ def create_connection(
         raise DatabaseError(msg) from exc
 
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON;")
     return connection
 
 
@@ -105,11 +118,7 @@ def get_connection(
     *,
     settings: AppSettings | None = None,
 ) -> Iterator[sqlite3.Connection]:
-    """Abre e fecha a conexão automaticamente.
-
-    O context manager evita conexões esquecidas abertas durante os ciclos de
-    conversa. Isso é simples e suficiente para um app local de terminal.
-    """
+    """Abre e fecha a conexão automaticamente."""
 
     connection = create_connection(db_path, settings=settings)
 
@@ -124,25 +133,28 @@ def initialize_database(
     *,
     settings: AppSettings | None = None,
 ) -> None:
-    """Cria a tabela principal e índices necessários para o histórico."""
+    """Cria as tabelas e índices necessários para o histórico."""
 
     try:
         with get_connection(db_path, settings=settings) as connection:
+            connection.execute(CREATE_SESSIONS_TABLE_SQL)
             connection.execute(CREATE_CONVERSATIONS_TABLE_SQL)
-            _ensure_required_columns(connection)
+            _ensure_required_conversation_columns(connection)
+            connection.execute(CREATE_SESSIONS_STARTED_AT_INDEX_SQL)
             connection.execute(CREATE_CONVERSATIONS_CREATED_AT_INDEX_SQL)
+            connection.execute(CREATE_CONVERSATIONS_SESSION_INDEX_SQL)
             connection.commit()
     except sqlite3.Error as exc:
         msg = "Não foi possível inicializar o banco SQLite do projeto."
         raise DatabaseError(msg) from exc
 
 
-def _ensure_required_columns(connection: sqlite3.Connection) -> None:
+def _ensure_required_conversation_columns(connection: sqlite3.Connection) -> None:
     """Adiciona colunas novas caso o banco já exista de uma versão anterior."""
 
-    existing_columns = _get_existing_columns(connection)
+    existing_columns = _get_existing_columns(connection, CONVERSATIONS_TABLE)
 
-    for column_name, column_type in REQUIRED_COLUMNS.items():
+    for column_name, column_type in REQUIRED_CONVERSATION_COLUMNS.items():
         if column_name in existing_columns:
             continue
 
@@ -151,8 +163,8 @@ def _ensure_required_columns(connection: sqlite3.Connection) -> None:
         )
 
 
-def _get_existing_columns(connection: sqlite3.Connection) -> set[str]:
-    """Lê as colunas atuais da tabela `conversations`."""
+def _get_existing_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    """Lê as colunas atuais de uma tabela SQLite."""
 
-    rows = connection.execute(f"PRAGMA table_info({CONVERSATIONS_TABLE});").fetchall()
+    rows = connection.execute(f"PRAGMA table_info({table_name});").fetchall()
     return {str(row["name"]) for row in rows}

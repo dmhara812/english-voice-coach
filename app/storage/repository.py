@@ -13,8 +13,33 @@ from app.ai.coach import CoachResponse, ConversationTurn
 from app.config import AppSettings
 from app.storage.database import DatabaseError, create_connection, initialize_database
 
+INSERT_SESSION_SQL: Final = """
+INSERT INTO conversation_sessions (started_at, title)
+VALUES (?, ?);
+"""
+
+FINISH_SESSION_SQL: Final = """
+UPDATE conversation_sessions
+SET ended_at = ?
+WHERE id = ?;
+"""
+
+SELECT_SESSION_BY_ID_SQL: Final = """
+SELECT id, started_at, ended_at, title
+FROM conversation_sessions
+WHERE id = ?;
+"""
+
+SELECT_RECENT_SESSIONS_SQL: Final = """
+SELECT id, started_at, ended_at, title
+FROM conversation_sessions
+ORDER BY id DESC
+LIMIT ?;
+"""
+
 INSERT_CONVERSATION_SQL: Final = """
 INSERT INTO conversations (
+    session_id,
     created_at,
     audio_file,
     user_transcription,
@@ -28,12 +53,13 @@ INSERT INTO conversations (
     coach_feedback_ptbr,
     ai_response_en,
     follow_up_question_en
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
-SELECT_RECENT_CONVERSATIONS_SQL: Final = """
+SELECT_RECENT_CONVERSATIONS_ALL_SQL: Final = """
 SELECT
     id,
+    session_id,
     created_at,
     audio_file,
     user_transcription,
@@ -52,9 +78,10 @@ ORDER BY id DESC
 LIMIT ?;
 """
 
-SELECT_CONVERSATION_BY_ID_SQL: Final = """
+SELECT_RECENT_CONVERSATIONS_BY_SESSION_SQL: Final = """
 SELECT
     id,
+    session_id,
     created_at,
     audio_file,
     user_transcription,
@@ -69,15 +96,34 @@ SELECT
     ai_response_en,
     follow_up_question_en
 FROM conversations
-WHERE id = ?;
+WHERE session_id = ?
+ORDER BY id DESC
+LIMIT ?;
+"""
+
+COUNT_CONVERSATIONS_BY_SESSION_SQL: Final = """
+SELECT COUNT(*) AS total
+FROM conversations
+WHERE session_id = ?;
 """
 
 
 @dataclass(frozen=True, slots=True)
-class ConversationRecord:
-    """Representa uma conversa já persistida no banco."""
+class ConversationSessionRecord:
+    """Representa uma sessão de estudo salva no banco."""
 
     id: int
+    started_at: str
+    ended_at: str | None
+    title: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationRecord:
+    """Representa uma rodada da conversa já persistida no banco."""
+
+    id: int
+    session_id: int | None
     created_at: str
     audio_file: str | None
     user_transcription: str
@@ -93,12 +139,7 @@ class ConversationRecord:
     follow_up_question_en: str | None
 
     def to_context_turn(self) -> ConversationTurn:
-        """Converte o registro salvo para o formato de contexto do coach.
-
-        O coach não precisa receber todos os dados do banco. Para manter custo
-        baixo, enviamos apenas o que ajuda a continuar a conversa: fala do aluno,
-        resposta do professor e pergunta feita anteriormente.
-        """
+        """Converte o registro salvo para o formato de contexto do coach."""
 
         return ConversationTurn(
             user_transcription=self.user_transcription,
@@ -107,19 +148,129 @@ class ConversationRecord:
         )
 
 
+def create_conversation_session(
+    *,
+    title: str | None = None,
+    db_path: Path | None = None,
+    settings: AppSettings | None = None,
+) -> int:
+    """Cria uma nova sessão de estudo.
+
+    Na integração final, cada execução do `python run.py` deve chamar esta função
+    uma vez. Assim a conversa de hoje fica separada da conversa de outro dia.
+    """
+
+    initialize_database(db_path, settings=settings)
+    normalized_title = title.strip() if title and title.strip() else None
+    connection: sqlite3.Connection | None = None
+
+    try:
+        connection = create_connection(db_path, settings=settings)
+        with connection:
+            cursor = connection.execute(
+                INSERT_SESSION_SQL,
+                (_utc_now_iso(), normalized_title),
+            )
+    except sqlite3.Error as exc:
+        msg = "Não foi possível criar uma nova sessão de conversa."
+        raise DatabaseError(msg) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+    return int(cursor.lastrowid)
+
+
+def finish_conversation_session(
+    session_id: int,
+    *,
+    db_path: Path | None = None,
+    settings: AppSettings | None = None,
+) -> None:
+    """Marca uma sessão como finalizada."""
+
+    _validate_positive_id(session_id, "session_id")
+    initialize_database(db_path, settings=settings)
+    connection: sqlite3.Connection | None = None
+
+    try:
+        connection = create_connection(db_path, settings=settings)
+        with connection:
+            connection.execute(FINISH_SESSION_SQL, (_utc_now_iso(), session_id))
+    except sqlite3.Error as exc:
+        msg = f"Não foi possível finalizar a sessão {session_id}."
+        raise DatabaseError(msg) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def get_conversation_session_by_id(
+    session_id: int,
+    *,
+    db_path: Path | None = None,
+    settings: AppSettings | None = None,
+) -> ConversationSessionRecord | None:
+    """Busca uma sessão específica pelo identificador."""
+
+    _validate_positive_id(session_id, "session_id")
+    initialize_database(db_path, settings=settings)
+    connection: sqlite3.Connection | None = None
+
+    try:
+        connection = create_connection(db_path, settings=settings)
+        row = connection.execute(SELECT_SESSION_BY_ID_SQL, (session_id,)).fetchone()
+    except sqlite3.Error as exc:
+        msg = f"Não foi possível buscar a sessão {session_id}."
+        raise DatabaseError(msg) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+    if row is None:
+        return None
+
+    return _row_to_session_record(row)
+
+
+def list_recent_sessions(
+    *,
+    limit: int = 10,
+    db_path: Path | None = None,
+    settings: AppSettings | None = None,
+) -> list[ConversationSessionRecord]:
+    """Lista as sessões mais recentes, da mais nova para a mais antiga."""
+
+    if limit <= 0:
+        msg = "O limite de sessões recentes deve ser maior que zero."
+        raise DatabaseError(msg)
+
+    initialize_database(db_path, settings=settings)
+    connection: sqlite3.Connection | None = None
+
+    try:
+        connection = create_connection(db_path, settings=settings)
+        rows = connection.execute(SELECT_RECENT_SESSIONS_SQL, (limit,)).fetchall()
+    except sqlite3.Error as exc:
+        msg = "Não foi possível listar as sessões recentes."
+        raise DatabaseError(msg) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+    return [_row_to_session_record(row) for row in rows]
+
+
 def save_conversation(
     *,
     user_transcription: str,
     coach_response: CoachResponse,
+    session_id: int | None = None,
     audio_file: Path | str | None = None,
     db_path: Path | None = None,
     settings: AppSettings | None = None,
 ) -> int:
-    """Salva uma rodada completa da conversa no SQLite.
-
-    A função recebe a transcrição e o objeto validado pelo Pydantic. Isso evita
-    salvar uma resposta solta da IA sem garantia de formato.
-    """
+    """Salva uma rodada completa da conversa no SQLite."""
 
     normalized_transcription = user_transcription.strip()
 
@@ -127,14 +278,18 @@ def save_conversation(
         msg = "Não é possível salvar uma conversa sem transcrição do usuário."
         raise DatabaseError(msg)
 
-    initialize_database(db_path, settings=settings)
+    active_session_id = session_id or create_conversation_session(
+        title="Sessão criada automaticamente",
+        db_path=db_path,
+        settings=settings,
+    )
 
+    initialize_database(db_path, settings=settings)
     audio_file_text = str(audio_file) if audio_file is not None else None
     mistakes_json = _json_dumps(
         [mistake.model_dump(mode="json") for mistake in coach_response.mistakes]
     )
     suggested_answers_json = _json_dumps(coach_response.suggested_answers_en)
-
     connection: sqlite3.Connection | None = None
 
     try:
@@ -143,6 +298,7 @@ def save_conversation(
             cursor = connection.execute(
                 INSERT_CONVERSATION_SQL,
                 (
+                    active_session_id,
                     _utc_now_iso(),
                     audio_file_text,
                     normalized_transcription,
@@ -170,27 +326,39 @@ def save_conversation(
 
 def list_recent_conversations(
     *,
+    session_id: int | None = None,
     limit: int = 6,
     db_path: Path | None = None,
     settings: AppSettings | None = None,
 ) -> list[ConversationRecord]:
-    """Lista as conversas recentes em ordem cronológica.
+    """Lista conversas recentes em ordem cronológica.
 
-    O banco busca primeiro as últimas linhas por `id DESC`, mas a função devolve
-    em ordem antiga → recente para facilitar o uso como contexto do coach.
+    Quando `session_id` é informado, o contexto fica limitado à sessão atual. É
+    isso que evita misturar a conversa de hoje com a conversa de outro dia.
     """
 
     if limit <= 0:
         msg = "O limite de conversas recentes deve ser maior que zero."
         raise DatabaseError(msg)
 
-    initialize_database(db_path, settings=settings)
+    if session_id is not None:
+        _validate_positive_id(session_id, "session_id")
 
+    initialize_database(db_path, settings=settings)
     connection: sqlite3.Connection | None = None
 
     try:
         connection = create_connection(db_path, settings=settings)
-        rows = connection.execute(SELECT_RECENT_CONVERSATIONS_SQL, (limit,)).fetchall()
+        if session_id is None:
+            rows = connection.execute(
+                SELECT_RECENT_CONVERSATIONS_ALL_SQL,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                SELECT_RECENT_CONVERSATIONS_BY_SESSION_SQL,
+                (session_id, limit),
+            ).fetchall()
     except sqlite3.Error as exc:
         msg = "Não foi possível listar o histórico de conversas."
         raise DatabaseError(msg) from exc
@@ -198,47 +366,41 @@ def list_recent_conversations(
         if connection is not None:
             connection.close()
 
-    records = [_row_to_record(row) for row in rows]
+    records = [_row_to_conversation_record(row) for row in rows]
     return list(reversed(records))
 
 
-def get_conversation_by_id(
-    conversation_id: int,
+def count_conversations_in_session(
+    session_id: int,
     *,
     db_path: Path | None = None,
     settings: AppSettings | None = None,
-) -> ConversationRecord | None:
-    """Busca uma conversa específica pelo identificador interno."""
+) -> int:
+    """Conta quantas rodadas foram salvas em uma sessão."""
 
-    if conversation_id <= 0:
-        msg = "O id da conversa deve ser maior que zero."
-        raise DatabaseError(msg)
-
+    _validate_positive_id(session_id, "session_id")
     initialize_database(db_path, settings=settings)
-
     connection: sqlite3.Connection | None = None
 
     try:
         connection = create_connection(db_path, settings=settings)
         row = connection.execute(
-            SELECT_CONVERSATION_BY_ID_SQL,
-            (conversation_id,),
+            COUNT_CONVERSATIONS_BY_SESSION_SQL,
+            (session_id,),
         ).fetchone()
     except sqlite3.Error as exc:
-        msg = f"Não foi possível buscar a conversa de id {conversation_id}."
+        msg = f"Não foi possível contar as conversas da sessão {session_id}."
         raise DatabaseError(msg) from exc
     finally:
         if connection is not None:
             connection.close()
 
-    if row is None:
-        return None
-
-    return _row_to_record(row)
+    return int(row["total"])
 
 
 def build_context_from_recent_conversations(
     *,
+    session_id: int | None = None,
     limit: int = 6,
     db_path: Path | None = None,
     settings: AppSettings | None = None,
@@ -246,6 +408,7 @@ def build_context_from_recent_conversations(
     """Monta o histórico curto que será enviado ao coach na integração."""
 
     records = list_recent_conversations(
+        session_id=session_id,
         limit=limit,
         db_path=db_path,
         settings=settings,
@@ -258,11 +421,23 @@ def build_context_from_recent_conversations(
     ]
 
 
-def _row_to_record(row: sqlite3.Row) -> ConversationRecord:
-    """Converte uma linha do SQLite para uma dataclass do projeto."""
+def _row_to_session_record(row: sqlite3.Row) -> ConversationSessionRecord:
+    """Converte uma linha do SQLite para uma sessão do projeto."""
+
+    return ConversationSessionRecord(
+        id=int(row["id"]),
+        started_at=str(row["started_at"]),
+        ended_at=_optional_str(row["ended_at"]),
+        title=_optional_str(row["title"]),
+    )
+
+
+def _row_to_conversation_record(row: sqlite3.Row) -> ConversationRecord:
+    """Converte uma linha do SQLite para uma conversa do projeto."""
 
     return ConversationRecord(
         id=int(row["id"]),
+        session_id=_optional_int(row["session_id"]),
         created_at=str(row["created_at"]),
         audio_file=_optional_str(row["audio_file"]),
         user_transcription=str(row["user_transcription"]),
@@ -277,6 +452,14 @@ def _row_to_record(row: sqlite3.Row) -> ConversationRecord:
         ai_response_en=_optional_str(row["ai_response_en"]),
         follow_up_question_en=_optional_str(row["follow_up_question_en"]),
     )
+
+
+def _validate_positive_id(value: int, field_name: str) -> None:
+    """Garante que identificadores internos sejam positivos."""
+
+    if value <= 0:
+        msg = f"{field_name} deve ser maior que zero."
+        raise DatabaseError(msg)
 
 
 def _utc_now_iso() -> str:
