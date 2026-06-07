@@ -14,7 +14,7 @@ from openai import (
     OpenAIError,
     RateLimitError,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import AppSettings, ConfigError, get_settings
 from app.prompts.english_coach_prompt import ENGLISH_COACH_SYSTEM_PROMPT
@@ -59,7 +59,12 @@ class CoachResponse(BaseModel):
     original_sentence: str = Field(min_length=1)
     corrected_sentence: str = Field(min_length=1)
     natural_sentence: str = Field(min_length=1)
-    suggested_answers_en: list[str] = Field(min_length=2, max_length=3)
+    suggested_answers_en: list[str] = Field(
+        min_length=2,
+        max_length=3,
+        validation_alias=AliasChoices("suggested_answers_en", "suggested_answers"),
+        serialization_alias="suggested_answers_en",
+    )
     mistakes: list[Mistake]
     score: Score
     coach_feedback_ptbr: str = Field(min_length=1)
@@ -202,8 +207,9 @@ def _validate_coach_response(raw_content: str) -> CoachResponse:
         return CoachResponse.model_validate_json(raw_content)
     except ValidationError as exc:
         msg = (
-            "A IA respondeu fora do formato JSON esperado pelo projeto. "
-            "Tente novamente ou reduza a mensagem do usuário."
+            "A IA respondeu em JSON, mas não seguiu exatamente o formato esperado "
+            "pelo projeto. Tente novamente. Se o erro persistir, revise o prompt "
+            "do coach e o modelo configurado em COACH_MODEL."
         )
         raise CoachError(msg) from exc
 

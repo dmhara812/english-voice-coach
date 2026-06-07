@@ -50,20 +50,33 @@ The JSON must use exactly this structure:
   ],
   "mistakes": [
     {
-      "type": "grammar | vocabulary | pronunciation | word_order | naturalness",
+      "type": "grammar",
       "explanation": "...",
       "example": "..."
     }
   ],
   "score": {
-    "grammar": 0,
-    "naturalness": 0,
-    "vocabulary": 0
+    "grammar": 8,
+    "naturalness": 8,
+    "vocabulary": 8
   },
   "coach_feedback_ptbr": "...",
   "ai_response_en": "...",
   "follow_up_question_en": "..."
 }
+
+Allowed mistake types:
+- grammar
+- vocabulary
+- pronunciation
+- word_order
+- naturalness
+
+Mistake rules:
+- The mistake type must be exactly one of the allowed values.
+- Do not return combined mistake types.
+- Do not return values like "grammar | vocabulary".
+- If there are no important mistakes, return an empty list: [].
 
 Score rules:
 - Scores must be integers from 0 to 10.
